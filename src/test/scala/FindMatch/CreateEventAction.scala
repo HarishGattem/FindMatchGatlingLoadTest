@@ -28,9 +28,9 @@ class CreateEventAction(recordType: Record, streamName: String, protocol: FindMa
   val buId = getNextBusNo.toString
   val tenant = new TenantIdentification(buId)
   val tenantGuid = getRandomUUID
-  val numOfSkills = 47
-  var numberOfAgents = 1200
-  val numberOfContactsPerSkill = 426
+  val numOfSkills = 4
+  var numberOfAgents = 3
+  val numberOfContactsPerSkill = 5
   var skillProficiencyList = generateSkillProficiencyList(buId, numOfSkills )
   var agentIdList = generateAgentIdList(numberOfAgents)
   val clusterName = "TEST3"
