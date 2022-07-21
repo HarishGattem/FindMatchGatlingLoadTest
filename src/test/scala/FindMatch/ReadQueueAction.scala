@@ -2,8 +2,8 @@ package FindMatch
 
 import Data.{BEResult, FMBridgeEvent, FMMatchResult, Record}
 import FindMatch.FindMatchProtocol
-import com.incontact.datainfra.events.findmatch.DigitalContactContext
-import com.incontact.datainfra.events.findmatch.FindMatchResultContext
+import Result.{LogResultReporter, ResultReporter}
+import com.incontact.datainfra.events.findmatch.{DigitalContactContext, FindMatchResultContext, FindMatchResultContext_v3, FindMatchResultEvent}
 import com.incontact.datainfra.events.findmatchbridge.FindMatchBridgeEvent
 import io.gatling.commons.stats.{KO, OK}
 import io.gatling.core.action.{Action, ChainableAction}
@@ -19,7 +19,7 @@ import software.amazon.awssdk.services.sqs.model.MessageSystemAttributeName
 
 import scala.util.{Failure, Success, Try}
 
-class ReadQueueAction(recordType: Record, queueName: String, protocol: FindMatchProtocol, val next: Action, statsEngine: StatsEngine) extends ChainableAction {
+class ReadQueueAction(recordType: Record, queueName: String, protocol: FindMatchProtocol, val next: Action, statsEngine: StatsEngine, reporter: ResultReporter) extends ChainableAction {
   override def name: String = "Read Queue"
 
   override protected def execute(session: Session): Unit = {
@@ -31,6 +31,7 @@ class ReadQueueAction(recordType: Record, queueName: String, protocol: FindMatch
       val messageList = protocol.getSqsMessages(queueName, 10)
 
       if (messageList.isEmpty) {
+        println("MESSAGE EMPTY")
         missedCount += 1
       }
       else {
@@ -40,7 +41,8 @@ class ReadQueueAction(recordType: Record, queueName: String, protocol: FindMatch
           var returnMessage: Option[String] = None
 
           val body = msg.body()
-          val event_start: Long = getStartTime(body) match {
+          println("MESSAGE READ: " + body)
+          val event_start: Long = getStartTime(body, reporter) match {
             case Success(v: Long) => v
             case Failure(ex: Throwable) =>
               status = KO
@@ -66,20 +68,24 @@ class ReadQueueAction(recordType: Record, queueName: String, protocol: FindMatch
     next ! session
   }
 
-  def getStartTime(body: String): Try[Long] = {
+  def getStartTime(body: String, reporter: ResultReporter): Try[Long] = {
     try {
       recordType match {
         case FMBridgeEvent(_) =>
           val event: FindMatchBridgeEvent = deserializeString(body, FindMatchBridgeEvent.getClassSchema)
+          println("BRIDGE EVENT")
           Success(event.getTimestamp)
 
         case FMMatchResult() =>
-          val event: FindMatchResultContext = deserializeString(body, FindMatchResultContext.getClassSchema)
-          Success(event.getOriginalQueueTime.getMillis)
+          val event: FindMatchResultEvent = deserializeString(body, FindMatchResultEvent.getClassSchema)
+          val context: FindMatchResultContext_v3 = event.getContext().asInstanceOf[FindMatchResultContext_v3]
+          reporter.reportMatch(context.getSkill().getBuId().toString(), context.getAgent().getAgentId().toString(), context.getContact().getContactId().toString())
+          Success(context.getOriginalQueueTime.getMillis)
 
         case BEResult() =>
           val decoded = new String(Base64.decodeBase64(body))
           val wrapped = parseJson(decoded)
+          println("BERESULT")
           wrapped match {
             case Success(json: JsValue) =>
               val data = (json \ "Wrapper" \ "Data").as[String]

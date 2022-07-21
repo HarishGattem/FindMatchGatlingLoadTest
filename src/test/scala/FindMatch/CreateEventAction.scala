@@ -1,11 +1,11 @@
 package FindMatch
 
+import Configuration.Configuration
 import Data.FmEventType._
 import Data.{FMBridgeEvent, Record}
-import com.incontact.datainfra.events.TenantIdentification
+import Result.ResultReporter
 import com.incontact.datainfra.events.TenantIdentification
 import com.incontact.datainfra.events.common._
-import com.incontact.datainfra.events.findmatch.FindMatchResultContext
 import com.incontact.datainfra.events.findmatchbridge._
 import io.gatling.commons.stats.OK
 import io.gatling.core.action._
@@ -18,25 +18,26 @@ import org.apache.tomcat.util.codec.binary.Base64
 
 import java.io.{ByteArrayOutputStream, OutputStream}
 import java.nio.{ByteBuffer, ByteOrder}
-import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters.{BufferHasAsJava, SeqHasAsJava}
 
-class CreateEventAction(recordType: Record, streamName: String, protocol: FindMatchProtocol, val next: Action, statsEngine: StatsEngine) extends ChainableAction with EventUtilities {
+class CreateEventAction(recordType: Record, streamName: String, protocol: FindMatchProtocol, val next: Action, statsEngine: StatsEngine, resultReporter: ResultReporter) extends ChainableAction with EventUtilities {
 
   override def name: String = "Create Event"
 
   val buId = getNextBusNo.toString
-  val tenant = new TenantIdentification(buId)
+  var configuration: Configuration = new Configuration()
+  val tenant = new TenantIdentification()
   val tenantGuid = getRandomUUID
-  val numOfSkills = 4
-  var numberOfAgents = 3
-  val numberOfContactsPerSkill = 5
-  var skillProficiencyList = generateSkillProficiencyList(buId, numOfSkills )
-  var agentIdList = generateAgentIdList(numberOfAgents)
-  val clusterName = "TEST3"
+  var skillProficiencyList = generateSkillProficiencyList(buId, configuration.numOfSkills.toInt )
+  var agentIdList = generateAgentIdList(configuration.numOfAgents.toInt)
+  val clusterName = configuration.clusterName
+
+  val MagicNumber: Int = 0x5043
+  val Version = 1
 
 
   override def execute(session: Session): Unit = {
+    tenant.setTenantId(buId)
     val partitionKey = buId
     recordType match {
       case FMBridgeEvent(fmEventType: FmEventType) if fmEventType == TENANT_MATCH => {
@@ -48,7 +49,8 @@ class CreateEventAction(recordType: Record, streamName: String, protocol: FindMa
         statsEngine.logResponse("Create Tenant Events", List(recordType.name), "Create Event", start, end, OK, None, None)
       }
       case FMBridgeEvent(fmEventType: FmEventType) if fmEventType == CONTACT_ROUTABLE => {
-        for (i <- 1 to numberOfContactsPerSkill) {
+        println("CONTACTS: " + configuration.contacts)
+        for (i <- 1 to configuration.contacts.toInt) {
           for (j <- 0 to skillProficiencyList.length - 1) {
             val contactData = createContactData(clusterName, skillProficiencyList(j).getId)
             println(s"Contact data is $contactData")
@@ -152,7 +154,7 @@ class CreateEventAction(recordType: Record, streamName: String, protocol: FindMa
 
   def createAgentRoutableEvent(cluster: String, agentId: String): String = {
     val event = FindMatchBridgeEvent.newBuilder()
-      .setContext(AgentRoutableContext_v4.newBuilder()
+      .setContext(AgentRoutableContext_v5.newBuilder()
         .setAgent(AgentIdentification.newBuilder()
           .setBuId(buId)
           .setAgentId(agentId)
@@ -161,9 +163,10 @@ class CreateEventAction(recordType: Record, streamName: String, protocol: FindMa
         )
         .setAgentUuid(getRandomUUID)
         .setInterruptPriorities(new InterruptibilityPriorities("1", "3", "34", timestamp.toString))
-        .setRoutingCriteria(List(new RoutabilityCriteria_v2(workitem, RoutableReason.AVAILABLE)).asJava)
+        .setRoutingCriteria(Seq[RoutabilityCriteria_v2](new RoutabilityCriteria_v2(workitem, RoutableReason.AVAILABLE)).asJava)
         .setIgnorePersistence(true)
-        .setCurrentContacts(List.empty.asJava)
+        .setCurrentContacts(Seq[ChannelCount]().asJava)
+        .setRegion("us-west-2")
       .build())
       .setCluster(cluster)
       .setTenant(TenantIdentification.newBuilder()
@@ -219,8 +222,9 @@ class CreateEventAction(recordType: Record, streamName: String, protocol: FindMa
     writer.write(event, encoder)
 
     encoder.flush()
-    stream.close()
 
-    new String(Base64.encodeBase64(stream.toByteArray))
+    val message = new String(Base64.encodeBase64(stream.toByteArray))
+    stream.close()
+    message
   }
 }

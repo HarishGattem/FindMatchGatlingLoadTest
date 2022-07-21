@@ -1,11 +1,13 @@
 package FindMatch
 
 import io.gatling.core.protocol._
+import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
 import software.amazon.awssdk.core.SdkBytes
 import software.amazon.awssdk.services.kinesis.KinesisClient
 import software.amazon.awssdk.services.kinesis.model.PutRecordRequest
 import software.amazon.awssdk.services.sqs.SqsClient
 import software.amazon.awssdk.services.sqs.model.{DeleteMessageRequest, GetQueueUrlRequest, Message, PurgeQueueRequest, QueueAttributeName, ReceiveMessageRequest}
+
 import scala.jdk.CollectionConverters.CollectionHasAsScala
 
 object FindMatchProtocol {
@@ -16,8 +18,8 @@ class FindMatchProtocol extends Protocol {
 
   import FindMatchProtocol._
 
-  protected val kinesisClient: KinesisClient = KinesisClient.builder().build()
-  protected val sqsClient: SqsClient = SqsClient.builder().build()
+  protected val kinesisClient: KinesisClient = KinesisClient.builder().credentialsProvider(EnvironmentVariableCredentialsProvider.create()).build()
+  protected val sqsClient: SqsClient = SqsClient.builder().credentialsProvider(EnvironmentVariableCredentialsProvider.create()).build()
 
   def putKinesisRecord(streamName: String, partitionKey: String, data: String): Unit = {
     val req = PutRecordRequest.builder()
@@ -26,7 +28,8 @@ class FindMatchProtocol extends Protocol {
       .partitionKey(partitionKey)
       .build()
 
-    kinesisClient.putRecord(req)
+    val response = kinesisClient.putRecord(req)
+    println("RESPONSE " + response)
   }
 
   def getSqsMessages(queueName: String, numMessages: Int = 1): Iterable[Message] = {

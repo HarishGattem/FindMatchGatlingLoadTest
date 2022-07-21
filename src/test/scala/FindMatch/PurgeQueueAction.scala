@@ -1,11 +1,12 @@
 package FindMatch
 
+import Result.ResultReporter
 import io.gatling.commons.stats.OK
 import io.gatling.core.action.{Action, ChainableAction}
 import io.gatling.core.session.Session
 import io.gatling.core.stats.StatsEngine
 
-class PurgeQueueAction(queueNames: List[String], protocol: FindMatchProtocol, val next: Action, statsEngine: StatsEngine) extends ChainableAction {
+class PurgeQueueAction(queueNames: List[String], protocol: FindMatchProtocol, val next: Action, statsEngine: StatsEngine, reporter: ResultReporter) extends ChainableAction {
   override def name: String = "Purge SQS Queue"
 
   override protected def execute(session: Session): Unit = {
